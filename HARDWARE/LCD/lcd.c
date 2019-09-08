@@ -2710,7 +2710,6 @@ void LCD_Color_Fill(u16 sx,u16 sy,u16 ex,u16 ey,u16 *color)
 //画线
 //x1,y1:起点坐标
 //x2,y2:终点坐标  
-
 void LCD_DrawLine(u16 x1, u16 y1, u16 x2, u16 y2)
 {
 	u16 t; 

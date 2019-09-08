@@ -2,8 +2,6 @@
 #include "usart.h"	  
 ////////////////////////////////////////////////////////////////////////////////// 	 
 //如果使用ucos,则包括下面的头文件即可.
-
-
 #if SYSTEM_SUPPORT_OS
 #include "includes.h"					//ucos 使用	  
 #endif
@@ -47,7 +45,7 @@ struct __FILE
 
 FILE __stdout;       
 //定义_sys_exit()以避免使用半主机模式    
-_sys_exit(int x) 
+void _sys_exit(int x) 
 { 
 	x = x; 
 } 
@@ -129,127 +127,38 @@ void uart_init(u32 bound){
 
 }
 
-void uart2_init(u32 bound){
-  //GPIO端口设置
-  GPIO_InitTypeDef GPIO_InitStructure;
-	USART_InitTypeDef USART_InitStructure;
-	NVIC_InitTypeDef NVIC_InitStructure;
-	 
-	RCC_APB2PeriphClockCmd(RCC_APB1Periph_USART2|RCC_APB2Periph_GPIOA, ENABLE);	//使能USART1，GPIOA时钟
-  
-	//USART1_TX   GPIOA.9
-  GPIO_InitStructure.GPIO_Pin = GPIO_Pin_2; //PB.10
-  GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
-  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;	//复用推挽输出
-  GPIO_Init(GPIOA, &GPIO_InitStructure);//初始化GPIOA.9
-   
-  //USART1_RX	  GPIOA.10初始化
-  GPIO_InitStructure.GPIO_Pin = GPIO_Pin_3;//PB11
-  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;//浮空输入
-  GPIO_Init(GPIOA, &GPIO_InitStructure);//初始化GPIOA.10  
-
-  //Usart1 NVIC 配置
-  NVIC_InitStructure.NVIC_IRQChannel = USART2_IRQn;
-	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority=3 ;//抢占优先级3
-	NVIC_InitStructure.NVIC_IRQChannelSubPriority = 3;		//子优先级3
-	NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;			//IRQ通道使能
-	NVIC_Init(&NVIC_InitStructure);	//根据指定的参数初始化VIC寄存器
-  
-   //USART 初始化设置
-
-	USART_InitStructure.USART_BaudRate = bound;//串口波特率
-	USART_InitStructure.USART_WordLength = USART_WordLength_8b;//字长为8位数据格式
-	USART_InitStructure.USART_StopBits = USART_StopBits_1;//一个停止位
-	USART_InitStructure.USART_Parity = USART_Parity_No;//无奇偶校验位
-	USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;//无硬件数据流控制
-	USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;	//收发模式
-
-  USART_Init(USART2, &USART_InitStructure); //初始化串口1
-  USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);//开启串口接受中断
-  USART_Cmd(USART2, ENABLE);                    //使能串口1 
-
-}
-
-uint8_t temp_data[4];
-extern int arr;
-static int i = 0; 
-
-//extern int pwm;
-
-
 void USART1_IRQHandler(void)                	//串口1中断服务程序
-{
-	if(USART_GetITStatus(USART1, USART_IT_RXNE)!= RESET)
-  { 
-		USART_ClearITPendingBit(USART1, USART_IT_RXNE); 
-		
-		temp_data[i] = USART_ReceiveData(USART1);
-		temp_data[i] = temp_data[i] - 0x30; 
-		i++;
-
-		//printf("%d\r\n",temp_data[0]);
-		//printf("%d",temp_data[1]);
-		if(i>=2)
+	{
+	u8 Res;
+#if SYSTEM_SUPPORT_OS 		//如果SYSTEM_SUPPORT_OS为真，则需要支持OS.
+	OSIntEnter();    
+#endif
+	if(USART_GetITStatus(USART1, USART_IT_RXNE) != RESET)  //接收中断(接收到的数据必须是0x0d 0x0a结尾)
 		{
-			i = 0;
-			arr = temp_data[0]*10+temp_data[1];
-		  //pwm = temp_data[2]*10+temp_data[3];
-			temp_data[0]=0;
-			temp_data[1]=0;
-			//temp_data[2]=0;
-			//temp_data[3]=0;
-			//temp_data[4]=0;
-		}
-			
+		Res =USART_ReceiveData(USART1);	//读取接收到的数据
 		
-		//printf("%d",arr);
-		
-    
- }
-
-	
-	
+		if((USART_RX_STA&0x8000)==0)//接收未完成
+			{
+			if(USART_RX_STA&0x4000)//接收到了0x0d
+				{
+				if(Res!=0x0a)USART_RX_STA=0;//接收错误,重新开始
+				else USART_RX_STA|=0x8000;	//接收完成了 
+				}
+			else //还没收到0X0D
+				{	
+				if(Res==0x0d)USART_RX_STA|=0x4000;
+				else
+					{
+					USART_RX_BUF[USART_RX_STA&0X3FFF]=Res ;
+					USART_RX_STA++;
+					if(USART_RX_STA>(USART_REC_LEN-1))USART_RX_STA=0;//接收数据错误,重新开始接收	  
+					}		 
+				}
+			}   		 
+     } 
 #if SYSTEM_SUPPORT_OS 	//如果SYSTEM_SUPPORT_OS为真，则需要支持OS.
 	OSIntExit();  											 
 #endif
-}
-
-//uint8_t temp_data_pwm[3];
-//extern int pwm;
-//static int j = 0; 
-
-//void USART2_IRQHandler(void)                	//串口1中断服务程序
-//{
-//	if(USART_GetITStatus(USART2, USART_IT_RXNE)!= RESET)
-//  { 
-//		USART_ClearITPendingBit(USART2, USART_IT_RXNE); 
-//		
-//		temp_data_pwm[j] = USART_ReceiveData(USART2);
-//		temp_data_pwm[j] = temp_data_pwm[j] - 0x30; 
-//		j++;
-
-//		//printf("%d\r\n",temp_data[0]);
-//		//printf("%d",temp_data[1]);
-//		if(j>=3)
-//		{
-//			j = 0;
-//			pwm = temp_data_pwm[0]*100+temp_data_pwm[1]*10+temp_data_pwm[2];
-//			temp_data_pwm[0] = 0;
-//			temp_data_pwm[1] = 0;
-//			temp_data_pwm[2] = 0;
-//		}
-//			
-//		
-//		//printf("%d",arr);
-//		
-//    
-// }
-
-//	
-//	
-//#if SYSTEM_SUPPORT_OS 	//如果SYSTEM_SUPPORT_OS为真，则需要支持OS.
-//	OSIntExit();  											 
-//#endif
-//}
+} 
 #endif	
 
